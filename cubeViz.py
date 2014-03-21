@@ -142,7 +142,7 @@ class cubeVizualizer:
             corePositions[i] =  array((atoms[i][2][0], atoms[i][2][1], 
                                         atoms[i][2][2]))
             coreCharge   =  atoms[i][1]
-            if i < nCores-4:
+            if i < nCores-6:
                 c = (1,0,0)
             else:
                 c = (0,1,0)
@@ -321,7 +321,7 @@ def define_command_line_options(parser=None):
                         help='save figures for movie')
                         
     parser.add_argument(
-        '--vizType', type=int, default=3, 
+        '--vizType', type=int, default=1, 
         help='visual representation of electron density')
                              
     return parser
