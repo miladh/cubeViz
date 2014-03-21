@@ -2,7 +2,6 @@ import glob, os
 from pylab import*
 from os.path import expanduser, join
 from mayavi import mlab
-import volumeSlicer as vs
 mlab.close(all=True)
 
 
@@ -20,24 +19,24 @@ dataType = dtype([("density", float)])
 
 "Read files*******************************************************************" 
 def readFiles():
+    nProcs = 8
     rawDataPath = "/home/milad/kurs/qmd/density"
     stateFiles = glob.glob1(rawDataPath,'*.bin')
-    nStateFiles = len(stateFiles)
+    nStateFiles = len(stateFiles)/nProcs
     print "# state files: ", nStateFiles
 
-    rawData = [None] * nStateFiles
-    atomList= [None] * nStateFiles
-    geometricData = [None] * nStateFiles
-    
+    rawData = [0] * nStateFiles
+    atomList= [0] * nStateFiles
+    geometricData = [0] * nStateFiles
     for i in range(0, nStateFiles):
-        cubeFile = join(rawDataPath, "cubeFile" + "%04d" % i  + ".bin")
-        if os.path.exists(cubeFile):
-            header, atoms, densityData = loadCubeFile(cubeFile)
-            
-            rawData[i]  = densityData
-            atomList[i] = atoms
-            geometricData[i] = header
-    
+        for j in range(0, nProcs):
+            cubeFile = join(rawDataPath,"id" + str(j) + "_cubeFile" + "%04d" % i  + ".bin")  
+            if os.path.exists(cubeFile):
+                header, atoms, densityData = loadCubeFile(cubeFile)
+                rawData[i] += densityData
+                atomList[i] = atoms
+                geometricData[i] = header
+
     return geometricData, atomList,rawData
 
 "File loader *****************************************************************" 
@@ -57,7 +56,7 @@ def loadCubeFile(fileName):
 
     #Density data
     densityData = fromfile(cubeFile, dtype=dataType)["density"]
-    densityData = array(densityData).reshape(nX,nY,nZ)
+    densityData = array(densityData).reshape(nX,nY,nZ).transpose()
     cubeFile.close()
     
     return geometricData, atoms, densityData
@@ -97,13 +96,12 @@ class cubeVizualizer:
         self.x, self.y, self.z = mgrid[self.xLim[0]:self.xLim[1]:self.nX, 
                                        self.yLim[0]:self.yLim[1]:self.nY,
                                        self.zLim[0]:self.zLim[1]:self.nZ]
-        
+
         print "# points: ",int(self.nX.real),int(self.nY.real),int(self.nZ.real)
         print "limits: ", self.xLim, self.yLim, self.zLim
                                        
     
     def vizualize(self):
-        
         # Set background color
         if self.bgcolor == "w":
             bgcolor = (1,1,1)
@@ -112,7 +110,7 @@ class cubeVizualizer:
         else:
             bgcolor = None
         
-        mlab.figure("cubeViz", bgcolor= bgcolor, size=(350, 350))
+        mlab.figure("cubeViz", bgcolor= bgcolor, size=(750, 550))
         
         #Show cores?        
         if self.showCores:
@@ -138,22 +136,35 @@ class cubeVizualizer:
         coreCharge = zeros(nCores)
         
         for i in range(0,nCores):
-            corePositions[i] =  array((atoms[i][2][1], atoms[i][2][0], 
+            corePositions[i] =  array((atoms[i][2][0], atoms[i][2][1], 
                                         atoms[i][2][2]))
             coreCharge[i]    =  atoms[i][0]
-            
-        corePlot = mlab.points3d(corePositions[:,0],corePositions[:,1],
-                                 corePositions[:,2],
-                                 sqrt(coreCharge),
-                                 scale_factor=0.25,
-                                 resolution=20,
-                                 colormap = "prism",
-                                 opacity = 0.8)
+            if i < nCores-1:
+                c = (0,1,0)
+            else:
+                c = (1,0,0)
+                
+            corePlot = mlab.points3d(corePositions[i,0],corePositions[i,1],
+                                 corePositions[i,2],
+                                 sqrt(coreCharge[i]),
+                                 scale_factor=0.3,
+                                 resolution=100,
+                                 color = c,
+                                 opacity = 1.0)
             
         return corePlot.mlab_source
         
     def displayDensity(self, densityData):
         raise NotImplementedError
+        
+    def numberOfElectrons(self, densityData):
+        dx = linspace(self.xLim[0],self.xLim[1], self.nX.real, retstep=True)[1]
+        dy = linspace(self.yLim[0],self.yLim[1], self.nY.real, retstep=True)[1]
+        dz = linspace(self.zLim[0],self.zLim[1], self.nZ.real, retstep=True)[1]
+        dr = dx * dy * dz
+        nElectrons = sum(densityData) * dr   
+        print "# electrons: ", nElectrons
+        
         
         
     @mlab.animate(delay=10, ui = True)
@@ -171,9 +182,9 @@ class cubeVizualizer:
              coreCharge = zeros(nCores)
  
              for j in range(0,nCores):
-                 corePositions[j] =  array((atoms[j][2][1],
-                                     atoms[j][2][0],
-                                     atoms[j][2][1]))
+                 corePositions[j] =  array((atoms[j][2][0],
+                                     atoms[j][2][1],
+                                     atoms[j][2][2]))
                  coreCharge[j]    =  atoms[j][0] 
                  
              self.coreSource.set(x = corePositions[:,0],
@@ -184,6 +195,7 @@ class cubeVizualizer:
          if self.densitySource!= None:
              nStep = len(self.densityData)
              density = self.densityData[i]
+#             self.numberOfElectrons(density)
              self.densitySource.set(scalars=density)
          
 #         f.scene.camera.azimuth(10)
@@ -192,7 +204,7 @@ class cubeVizualizer:
 
          if self.saveFigure: 
              rawDataPath = "/home/milad/kurs/qmd/density"
-             figure = join(rawDataPath, "fig/cubeFile" + "%04d" % i+".png")
+             figure = join(rawDataPath, "render/cubeFile" + "%04d" % i+".png")
              mlab.savefig(figure)
          
          i+=1             
@@ -208,15 +220,18 @@ class contourRepresentation(cubeVizualizer):
     """ 
     
     def displayDensity(self, densityValues):
+        self.numberOfElectrons(densityValues)
         densityPlot = mlab.contour3d(self.x, self.y, self.z, 
                                      densityValues,
                                      vmin = self.vmin,
-                                     vmax = self.vmax*0.4,
+                                     vmax = self.vmax*0.01,
                                      colormap = "Blues",
-                                     opacity = 0.2,
-                                     contours=50, transparent=True)
+                                     opacity = 0.1,
+                                     line_width = 1.0,
+                                     contours=100, transparent=True)
         mlab.outline()
         mlab.axes()
+        densityPlot.actor.property.representation = 'surface'
         return densityPlot.mlab_source
 "*****************************************************************************" 
 class volumeRepresentation(cubeVizualizer):
@@ -225,13 +240,14 @@ class volumeRepresentation(cubeVizualizer):
     """ 
     
     def displayDensity(self, densityValues):
+        self.numberOfElectrons(densityValues)
         source = mlab.pipeline.scalar_field(self.x, self.y, self.z, 
                                             densityValues)
 
         densityPlot = mlab.pipeline.volume(source,
                                     vmin = self.vmin,
-                                    vmax = self.vmax*0.3)
-        #Set colormap                            
+                                    vmax = self.vmax*0.01)
+        #Set colormap             
         densityPlot = self.setColormap(densityPlot)
     
         return densityPlot.mlab_source
@@ -242,6 +258,7 @@ class volumeRepresentation(cubeVizualizer):
        
        # Add points to CTF 
         ctf.add_rgb_point(0, 1.0, 1.0, 1.0) 
+#        ctf.add_rgb_point(0.3, 1.0, 0.0, 0.0) 
         ctf.add_rgb_point(0.8, 0.0, 0.0, 1.0) 
         ctf.add_rgb_point(1, 0.0, 0.0, 1.0) 
         
@@ -257,60 +274,32 @@ class slicer1Representation(cubeVizualizer):
     """ 
     
     def displayDensity(self, densityValues):
-            source = mlab.pipeline.scalar_field(self.x, self.y, self.z, 
-                                                densityValues)    
-            densityPlot = mlab.pipeline.image_plane_widget(source,
-                            colormap="hot",opacity = 1, transparent=True,                   
-                            plane_orientation='x_axes',vmin = self.vmin,
-                                    vmax = self.vmax*0.5,
-                            slice_index=20,)
-    
-            densityPlot = mlab.pipeline.image_plane_widget(source,
-                        colormap="hot",  opacity = 1,transparent=True,vmin = self.vmin,
-                                    vmax = self.vmax*0.5,
-                        plane_orientation='y_axes',
-                        slice_index=20,)         
-                        
-            densityPlot = mlab.pipeline.image_plane_widget(source,
-                    colormap="hot",   opacity = 1, transparent=True, vmin = self.vmin,
-                                    vmax = self.vmax*0.5,                            
-                    plane_orientation='z_axes',
-                    slice_index=20,)    
+        self.numberOfElectrons(densityValues)
+        source = mlab.pipeline.scalar_field(self.x, self.y, self.z, 
+                                            densityValues)    
+        densityPlot = mlab.pipeline.image_plane_widget(source,
+                        colormap="hot",opacity = 1, transparent=True,                   
+                        plane_orientation='x_axes',vmin = self.vmin,
+                                vmax = self.vmax*0.04,
+                        slice_index=20,)
+
+        densityPlot = mlab.pipeline.image_plane_widget(source,
+                    colormap="hot",  opacity = 1,transparent=True,vmin = self.vmin,
+                                vmax = self.vmax*0.04,
+                    plane_orientation='y_axes',
+                    slice_index=20,)         
                     
-            mlab.outline()
-#            mlab.axes()
-            
-            return densityPlot.mlab_source 
-
-"*****************************************************************************" 
-class slicer2Representation(cubeVizualizer):
-    """
-    Electron density represented by slices
-    """ 
-    
-    def displayDensity(self, densityValues):
-            
-        m = vs.VolumeSlicer(data=densityValues)
-        m.configure_traits()
-        return m
-        
-"*****************************************************************************" 
-class surf2DRepresentation(cubeVizualizer):
-    """
-    Electron density represented in 2D
-    """ 
-    
-    def displayDensity(self, densityValues):
-        extent = [self.xLim[0], self.xLim[1], 
-                self.yLim[0], self.yLim[1],
-                log10(self.vmax), log10(self.vmin)]
-        densityPlot = mlab.surf(densityValues[:,:,0],opacity=0.8,
-                           colormap = "Blues",extent=extent)
-                           
+        densityPlot = mlab.pipeline.image_plane_widget(source,
+                colormap="hot",   opacity = 1, transparent=True, vmin = self.vmin,
+                                vmax = self.vmax*0.04,                            
+                plane_orientation='z_axes',
+                slice_index=20,)    
+                
         mlab.outline()
-        mlab.axes()
-        return densityPlot.mlab_source       
-
+#            mlab.axes()
+        
+        return densityPlot.mlab_source 
+            
 "*****************************************************************************"
 def define_command_line_options(parser=None):
     if parser is None:
@@ -320,20 +309,20 @@ def define_command_line_options(parser=None):
     parser.add_argument('--showCores', action='store_true', default=1,
                         help='show cores')  
                         
-    parser.add_argument('--showDensity', action='store_true', default=True,
+    parser.add_argument('--showDensity', action='store_true', default=False,
                         help='show charge density')  
                         
     parser.add_argument(
         '--bgcolor', type=str, default= "b" , help='background coclor')
                         
-    parser.add_argument('--animate', action='store_true', default=1,
+    parser.add_argument('--animate', action='store_true', default=0,
                         help='make animation')
     
     parser.add_argument('--saveFigure', action='store_true', default=0,
                         help='save figures for movie')
                         
     parser.add_argument(
-        '--vizType', type=int, default= 5 , 
+        '--vizType', type=int, default=1, 
         help='visual representation of electron density')
                              
     return parser
@@ -346,6 +335,10 @@ def main():
     #Read files
     geometricData, atomList, densityData = readFiles()
     
+#    for i in range(0, densityData[0].shape[1]):
+#        for j in range(0, densityData[0].shape[2]): 
+#             densityData[0][:,i,j] = [0 if x<1e-6 else x for x in densityData[0][:,i,j]]
+    
     # visual representation:
     if args.vizType ==1:
         vizType = volumeRepresentation
@@ -353,10 +346,6 @@ def main():
         vizType = contourRepresentation
     elif args.vizType ==3:
         vizType = slicer1Representation
-    elif args.vizType ==4:
-        vizType = slicer2Representation
-    elif args.vizType ==5:
-        vizType = surf2DRepresentation
     else:
         sys.exit("unknwon visual type")
     
